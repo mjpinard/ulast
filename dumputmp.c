@@ -4,9 +4,7 @@
 #include	<fcntl.h>
 #include	<unistd.h>
 #include	<utmp.h>
-
-void dumpfile(const char *fn);
-void show_utrec( const struct utmp *rp );
+#include "dumputmp.h"
 
 /*
  * dumputmp.c
