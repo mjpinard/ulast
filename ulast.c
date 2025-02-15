@@ -26,12 +26,12 @@
 #endif
 
 void show_info(struct utmp *);
-void read_wtmp_file(char *info);
+void read_wtmp_file(char *info, char *username);
 
 int main(int ac, char *av[])
 {
     char *info = WTMP_FILE;
-    const char *username = "dce-lib215";
+    char *username = "dce-lib215";
     int e_flag = 0;
 
     //process args
@@ -41,22 +41,30 @@ int main(int ac, char *av[])
 			i++; //skip next arg bc it is the filepath
 		}else if(strcmp(av[i], "-e")== 0){
 			e_flag = 1;
-		}else{
+		}else if(av[i][0] == '-'){
+            fprintf(stderr, "Unknown option: %s\n", av[i]);
+            exit(EXIT_FAILURE);
+        }
+        else{
 			username = av[i];
 		}
 	}
+    if(username ==NULL){
+        fprintf(stderr,"Usage: %s [-f filepath] [e] username\n", av[0]);
+        exit(EXIT_FAILURE);
+    }
     printf("username is: %s. \n",username);
     printf("filename is: %s. \n",info);
     printf("eflag is: %d. \n", e_flag);
 
 
-    read_wtmp_file(info);
+    read_wtmp_file(info, username);
 
     return 0;
 }
 
 
-void read_wtmp_file(char *info){
+void read_wtmp_file(char *info, char *username){
     struct utmp utbuf; /* read info into here */
     int utmpfd;        /* read from this descriptor */
     ssize_t bytes_read;
@@ -89,11 +97,11 @@ void read_wtmp_file(char *info){
         // display login info
         show_info(&utbuf);
 
-        // if(strcmp(utbuf.ut_name, username)==0){
-        // 	//this is your correct user
-        // 	printf("this is your user)");
-        // 	printf("\n");
-        // }
+        if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)==0){
+        	//this is your correct user
+        	printf("this is your user)");
+        	printf("\n");
+        }
 
         // move file pointer back
         if (lseek(utmpfd, -sizeof(utbuf), SEEK_CUR) == -1)
@@ -103,8 +111,6 @@ void read_wtmp_file(char *info){
             exit(EXIT_FAILURE);
         }
     }
-    // while (read(utmpfd, &utbuf, sizeof(utbuf)) == sizeof(utbuf))
-    //     show_info(&utbuf);
     close(utmpfd);
 }
 
