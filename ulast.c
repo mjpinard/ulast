@@ -28,6 +28,37 @@
 void show_info(struct utmp *);
 void read_wtmp_file(char *info, char *username);
 
+struct LogList{
+    struct utmp utmpr;
+    struct Node *next;
+};
+
+typedef struct LogList *node; //defines node as pointer of data type struct LogList
+
+node createRecord(){
+    node temp;
+    temp = (node)malloc(sizeof(struct LogList)); //allocate using malloc()
+    temp->next = NULL;
+    return temp;
+}
+
+node addRecord(node head, struct utmp record){
+    node temp,p;
+    temp = createRecord(); //returns a new record and next pointing to null
+    temp->utmpr = record;
+    if(head ==NULL){
+        head = temp;
+    }
+    else{
+        p = head;
+        while(p->next != NULL){
+            p = p->next; //traverse until is is the last node
+        }
+        p->next = temp;
+    }
+    return head;
+}
+
 int main(int ac, char *av[])
 {
     char *info = WTMP_FILE;
@@ -97,6 +128,7 @@ void read_wtmp_file(char *info, char *username){
         // display login info
         show_info(&utbuf);
 
+
         if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)==0){
         	//this is your correct user
         	printf("this is your user)");
@@ -113,10 +145,6 @@ void read_wtmp_file(char *info, char *username){
     }
     close(utmpfd);
 }
-
-
-
-
 /*
  *	show info()
  *			displays the contents of the utmp struct
@@ -156,3 +184,23 @@ void showtime(time_t timeval, char *fmt)
     strftime(result, MAXDATELEN, fmt, tp); /* format it	*/
     fputs(result, stdout);
 }
+
+
+
+
+
+
+
+//method to find the matching log out record
+
+//method to add log out record to the list 
+
+//
+
+//if find username log in record
+    // traverse for matching log out record
+
+
+//reboot method
+//set all records to have the most recent reboot time as logout time
+
