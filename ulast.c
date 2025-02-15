@@ -59,7 +59,7 @@ void insertAtEnd(Node** head, struct utmp *data) {
     temp->next = newNode;
 }
 
-// add or update dead process
+// add or update log out
 
 void add_or_update_dead_process(struct Node** head, struct utmp *record){
     if(record->ut_type != DEAD_PROCESS){
@@ -70,6 +70,7 @@ void add_or_update_dead_process(struct Node** head, struct utmp *record){
     while(current!= NULL){
         if(strncmp(current->data.ut_line, record->ut_line, UT_LINESIZE)==0){
             current->data.ut_pid = record->ut_pid;
+            current->data.ut_time = record->ut_time;
             current->data.ut_session = record->ut_session;
             return;
         }
@@ -78,51 +79,28 @@ void add_or_update_dead_process(struct Node** head, struct utmp *record){
     insertAtEnd(head, record);
 }
 
-  
-  // Search the list for the record with matching pid and ut_line, return the session log in time and -1 if not found
-  int32_t findLogOutAndDelete(struct Node** head_ref, struct utmp key) {
-    Node* current = *head_ref;
-    Node* previous = NULL;
-  
-    //traverse the list
-    while (current != NULL) {
-    if (current->data.ut_pid == key.ut_pid && current->data.ut_line == key.ut_line){
-        int32_t session = current->data.ut_session;
-        //remove node the list
+//function to return the matching node and remove it from the linked list, returns a null node* if the matching log in record does not exist
 
-    }
-    previous = current;
-    current = current->next;
-    }
-    return -1;
-  }
-
-    // Search the list for the record with matching pid and ut_line, return the utmp record
-    struct utmp findLogOut(struct Node** head_ref, struct utmp key) {
-        Node* current = *head_ref;
-        struct utmp logIn;
-      
-        //traverse the list
-        while (current != NULL) {
-        if (current->data.ut_pid == key.ut_pid && current->data.ut_line == key.ut_line){
-            //return matching utmp record
-            return current->data;
+Node* find_and_remove_matching_record(Node **head, struct utmp *record){
+    Node *current = *head;
+    Node *previous = NULL;
+    
+    while(current!= NULL){
+        //if the record matches
+        if(current->data.ut_pid == record->ut_pid && strncmp(current->data.ut_line, record->ut_line, UT_LINESIZE)==0){
+            // if record is first in the list
+            if(previous ==NULL){
+                *head = current->next;
+            }else{
+                //remove from the list
+                previous->next = current->next;
+            }
+            return current;
         }
+        previous = current;
         current = current->next;
-        }
-      }
-
-  //update log out time
-  int updateLogOut(struct Node** head_ref, struct utmp key) {
-    struct Node* current = *head_ref;
-  
-    while (current != NULL) {
-    if (current->data.ut_pid == key.ut_pid && current->data.ut_line == key.ut_line) return 1;
-    current = current->next;
     }
-    return 0;
-  }
-
+}
 
   //update all log out times on reboot
 
@@ -134,8 +112,6 @@ void add_or_update_dead_process(struct Node** head, struct utmp *record){
         current = next;
     }
 }
-
-
 
 
 int main(int ac, char *av[])
@@ -205,32 +181,54 @@ void read_wtmp_file(char *info, char *username){
             exit(EXIT_FAILURE);
         }
 
-        insertAtEnd(&head,&utbuf);
+        if(utbuf.ut_type == USER_PROCESS){
+            if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)!=0){
+                Node *matching_node = find_and_remove_matching_record(&head, &utbuf);
+                if(matching_node != NULL){
+                    time_t login_time = utbuf.ut_time;
+                    time_t logout_time = matching_node->data.ut_time;
+                    double duration = difftime(logout_time, login_time);
+                    
+                    printf("User: %-8.8s Line: %-8.8s Login: %s Logout: %s Duration: %.2f seconds Host: %-16.16s\n", 
+                    utbuf.ut_user, utbuf.ut_line, ctime(&login_time), ctime(&logout_time), duration, utbuf.ut_host);
+
+                    free(matching_node);
+                }
+
+            }
+        }
+        add_or_update_dead_process(&head,&utbuf);
+
 
         // //if it's a log out, add it to the stack
         // if(utbuf.ut_type == DEAD_PROCESS){
         //     //update the log out time and pid if it exists, otherwise add to the stack
-        //     processLogOutRecord(&head,utbuf);
+        //     add_or_update_dead_process(&head,&utbuf);
         // }
 
         // if(utbuf.ut_type == USER_PROCESS){
-
         //     //matches the user we are looking for
         //     if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)!=0){
         //         //this is your correct user
         //         printf("this is your user)");
         //         printf("\n");
         //         //process the user, print the session time
-        //     }else{
-        //         //add implied log out to stack
-        //         processLogOutRecord(&head,utbuf);
+        //         Node *matching_node = find_and_remove_matching_record(&head, &utbuf);
+                // if(matching_node != NULL){
+                //     time_t login_time = utbuf.ut_time;
+                //     time_t logout_time = matching_node->data.ut_time;
+                //     double duration = difftime(logout_time, login_time);
+                    
+                //     printf("User: %-8.8s Line: %-8.8s Login: %s Logout: %s Duration: %.2f seconds Host: %-16.16s\n", 
+                //     utbuf.ut_user, utbuf.ut_line, ctime(&login_time), ctime(&logout_time), duration, utbuf.ut_host);
+
+                //     free(matching_node);
+                // }
+        //     }
         //     }
         // }
 
 
-
-        // display login info
-        // show_info(&utbuf);
 
         // move file pointer back
         if (lseek(utmpfd, -sizeof(utbuf), SEEK_CUR) == -1)
@@ -239,6 +237,7 @@ void read_wtmp_file(char *info, char *username){
             close(utmpfd);
             exit(EXIT_FAILURE);
         }
+    
     }
 
     Node* current = head;
@@ -261,14 +260,15 @@ void show_info(struct utmp *utbufp)
 {
     void showtime(time_t, char *);
 
-    if (utbufp->ut_type != USER_PROCESS)
-        return;
+    // if (utbufp->ut_type != USER_PROCESS)
+    //     return;
 
     printf("%-8.32s", utbufp->ut_name);       /* the logname	*/
                                               /* better: "%-8.*s",UT_NAMESIZE,utbufp->ut_name) */
     printf(" ");                              /* a space	*/
     printf("%-12.12s", utbufp->ut_line);      /* the tty	*/
     printf(" ");                              /* a space	*/
+    printf("%6d ", utbufp->ut_pid ); 
     showtime(utbufp->ut_time, DATE_FMT);      /* display time	*/
     if (utbufp->ut_host[0] != '\0')           /* if not ""	*/
         printf(" (%.256s)", utbufp->ut_host); /*    show host	*/
