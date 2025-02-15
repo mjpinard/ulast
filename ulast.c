@@ -28,36 +28,48 @@
 void show_info(struct utmp *);
 void read_wtmp_file(char *info, char *username);
 
-struct LogList{
-    struct utmp utmpr;
-    struct Node *next;
-};
+// Create a node
+typedef struct Node {
+    struct utmp data;
+    struct Node* next;
+} Node;
 
-typedef struct LogList *node; //defines node as pointer of data type struct LogList
-
-node createRecord(){
-    node temp;
-    temp = (node)malloc(sizeof(struct LogList)); //allocate using malloc()
-    temp->next = NULL;
-    return temp;
+  // Function to create a new Node
+Node* createNode(struct utmp data) {
+    Node* newNode = (Node*)malloc(sizeof(Node));
+    if (newNode == NULL) {
+        perror("Failed to allocate memory for new node");
+        exit(1);
+    }
+    newNode->data = data;
+    newNode->next = NULL;
+    return newNode;
 }
 
-node addRecord(node head, struct utmp record){
-    node temp,p;
-    temp = createRecord(); //returns a new record and next pointing to null
-    temp->utmpr = record;
-    if(head ==NULL){
-        head = temp;
+void insertAtEnd(Node** head, struct utmp data) {
+    Node* newNode = createNode(data);
+    if (*head == NULL) {
+        *head = newNode;
+        return;
     }
-    else{
-        p = head;
-        while(p->next != NULL){
-            p = p->next; //traverse until is is the last node
-        }
-        p->next = temp;
+    Node* temp = *head;
+    while (temp->next != NULL) {
+        temp = temp->next;
     }
-    return head;
+    temp->next = newNode;
 }
+  
+  // Search a node
+//   int searchNode(struct Node** head_ref, struct utmp key) {
+//     struct Node* current = *head_ref;
+  
+//     while (current != NULL) {
+//     if (current->data.ut_pid == key.ut_pid) return 1;
+//     current = current->next;
+//     }
+//     return 0;
+//   }
+
 
 int main(int ac, char *av[])
 {
@@ -94,11 +106,12 @@ int main(int ac, char *av[])
     return 0;
 }
 
-
 void read_wtmp_file(char *info, char *username){
     struct utmp utbuf; /* read info into here */
     int utmpfd;        /* read from this descriptor */
     ssize_t bytes_read;
+    Node* head = NULL;
+
 
     if ((utmpfd = open(info, O_RDONLY)) == -1)
     {
@@ -126,14 +139,15 @@ void read_wtmp_file(char *info, char *username){
         }
 
         // display login info
-        show_info(&utbuf);
+        // show_info(&utbuf);
+        insertAtEnd(&head, utbuf);
 
 
-        if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)==0){
-        	//this is your correct user
-        	printf("this is your user)");
-        	printf("\n");
-        }
+        // if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)==0){
+        // 	//this is your correct user
+        // 	printf("this is your user)");
+        // 	printf("\n");
+        // }
 
         // move file pointer back
         if (lseek(utmpfd, -sizeof(utbuf), SEEK_CUR) == -1)
@@ -142,7 +156,15 @@ void read_wtmp_file(char *info, char *username){
             close(utmpfd);
             exit(EXIT_FAILURE);
         }
+        
     }
+
+    Node* current = head;
+    while(current->next!=NULL){
+            show_info(&(current->data));
+            current = current->next;
+    }
+
     close(utmpfd);
 }
 /*
