@@ -32,6 +32,7 @@ void read_wtmp_file(char *info, char *username);
 typedef struct Node {
     struct utmp data;
     struct Node* next;
+    struct Node* prev;
 } Node;
 
   // Function to create a new Node
@@ -43,6 +44,7 @@ Node* createNode(struct utmp data) {
     }
     newNode->data = data;
     newNode->next = NULL;
+    newNode->prev = NULL;
     return newNode;
 }
 
@@ -58,17 +60,75 @@ void insertAtEnd(Node** head, struct utmp data) {
     }
     temp->next = newNode;
 }
+
+//this function will look for a matching tty, if one is found, it will update the pid and log out, otherwise it will add the record to the list
+
+int processLogOutRecord(struct Node** head_ref, struct utmp newRecord){
+    Node* current = *head_ref;
+
+    if(current==NULL){
+        insertAtEnd(&current,newRecord);
+        return 0;
+    }
+    while (current != NULL) {
+        //look for a matching ut_line
+        if (current->data.ut_line == newRecord.ut_line){
+
+        //update record with the log time and the new pid
+        current->data.ut_pid = newRecord.ut_pid;
+        current->data.ut_session = newRecord.ut_session;
+        return 0;
+        }
+        if(current->next ==NULL){
+           //no matching records, add the record
+           insertAtEnd(&current,newRecord);
+        }
+        current = current->next;
+        }
+    return -1;
+}
+
   
-  // Search a node
-//   int searchNode(struct Node** head_ref, struct utmp key) {
-//     struct Node* current = *head_ref;
+  // Search the list for the record with matching pid and ut_line, return the session log in time and -1 if not found
+  int32_t findLogOutAndDelete(struct Node** head_ref, struct utmp key) {
+    Node* curr = *head_ref;
+    Node* prev = NULL;
   
-//     while (current != NULL) {
-//     if (current->data.ut_pid == key.ut_pid) return 1;
-//     current = current->next;
-//     }
-//     return 0;
-//   }
+    while (curr != NULL) {
+    if (curr->data.ut_pid == key.ut_pid && curr->data.ut_line == key.ut_line){
+        int32_t session = curr->data.ut_session;
+        //remove from the list
+
+    } 
+    curr = curr->next;
+    }
+    return -1;
+  }
+
+  //update log out time
+  int updateLogOut(struct Node** head_ref, struct utmp key) {
+    struct Node* current = *head_ref;
+  
+    while (current != NULL) {
+    if (current->data.ut_pid == key.ut_pid && current->data.ut_line == key.ut_line) return 1;
+    current = current->next;
+    }
+    return 0;
+  }
+
+
+  //update all log out times on reboot
+
+  void freeLinkedList(Node* head) {
+    Node* current = head;
+    while (current != NULL) {
+        Node* next = current->next;
+        free(current);
+        current = next;
+    }
+}
+
+
 
 
 int main(int ac, char *av[])
@@ -138,16 +198,30 @@ void read_wtmp_file(char *info, char *username){
             exit(EXIT_FAILURE);
         }
 
+        //if it's a log out, add it to the stack
+        if(utbuf.ut_type == DEAD_PROCESS){
+            //update the log out time and pid if it exists, otherwise add to the stack
+            processLogOutRecord(&head,utbuf);
+        }
+
+        if(utbuf.ut_type == USER_PROCESS){
+
+            //matches the user we are looking for
+            if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)!=0){
+                //this is your correct user
+                printf("this is your user)");
+                printf("\n");
+                //process the user, print the session time
+            }else{
+                //add implied log out to stack
+                processLogOutRecord(&head,utbuf);
+            }
+        }
+
+
+
         // display login info
         // show_info(&utbuf);
-        insertAtEnd(&head, utbuf);
-
-
-        // if(strncmp(utbuf.ut_name, username,UT_NAMESIZE)==0){
-        // 	//this is your correct user
-        // 	printf("this is your user)");
-        // 	printf("\n");
-        // }
 
         // move file pointer back
         if (lseek(utmpfd, -sizeof(utbuf), SEEK_CUR) == -1)
@@ -156,7 +230,6 @@ void read_wtmp_file(char *info, char *username){
             close(utmpfd);
             exit(EXIT_FAILURE);
         }
-        
     }
 
     Node* current = head;
@@ -167,6 +240,8 @@ void read_wtmp_file(char *info, char *username){
 
     close(utmpfd);
 }
+
+
 /*
  *	show info()
  *			displays the contents of the utmp struct
