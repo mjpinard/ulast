@@ -27,7 +27,7 @@
 #endif
 
 void show_info(struct utmp *);
-void read_wtmp_file(char *info, char *username);
+void read_wtmp_file(char *info, char *username, int e_flag);
 void print_session_info(struct utmp *login_record, struct utmp *logout_record);
 
 // Create a node
@@ -129,7 +129,7 @@ void reboot_logs(struct Node** head, struct utmp *record){
 int main(int ac, char *av[])
 {
     char *info = WTMP_FILE;
-    char *username = "dce-lib215";
+    char *username;
     int e_flag = 0;
 
     //process args
@@ -148,58 +148,60 @@ int main(int ac, char *av[])
 		}
 	}
     if(username ==NULL){
-        fprintf(stderr,"Usage: %s [-f filepath] [e] username\n", av[0]);
+        fprintf(stderr,"You must enter a username to the program with [-f filepath] [e] username\n");
         exit(EXIT_FAILURE);
     }
 
-    read_wtmp_file(info, username);
+    read_wtmp_file(info, username, e_flag);
 
     return 0;
 }
 
-void read_wtmp_file(char *info, char *username){
+void process_record(struct utmp* currRecord, char *username, Node** head){
+    if(currRecord->ut_type == USER_PROCESS){ /* record is log in */
+        if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){ /* check username */
+            Node *matching_node = find_and_remove_matching_record(head, currRecord);
+            if(matching_node != NULL){
+                print_session_info(currRecord, &matching_node->data);
+                free(matching_node);
+            }else{
+                print_session_info(currRecord, NULL);
+            }
+        }else{
+            /* record could be implied log in */
+            add_or_update_dead_process(head,currRecord); 
+        }
+    }else if(currRecord->ut_type == DEAD_PROCESS){
+        add_or_update_dead_process(head,currRecord);
+    }else if(currRecord->ut_type == BOOT_TIME){
+        //set all the log out records to the current time
+        reboot_logs(head,currRecord);
+    }
+}
+
+void read_wtmp_file(char *info, char *username, int e_flag){
     int utmpfd;        /* read from this descriptor */
     struct utmp* currRecord;
     Node* head = NULL;
 
-    if ((utmpfd = utmp_open(info)) == -1)
+    if ((utmpfd = utmp_open(info)) == -1) /* open file */
     {
         perror("open");
         exit(EXIT_FAILURE);
     }
-
     int num_records = utmp_len();
 
-    // Read the file backwards one struct at a time - starting at the last struct and go to first struct
-    for(int i = num_records -1; i>=0; i--)
+    for(int i = num_records -1; i>=0; i--) /* read last record to first */
     {
-        // at this point we want to call utmp_getrec() and give it a record number
-        currRecord = utmp_getrec(i);
-
-        //call method called process record (which will do the below processesing) -- pass in a pointer to the record
-        //instead of calling utbuf.ut_type call utbuf->ut_type
-        if(currRecord->ut_type == USER_PROCESS){
-            //if it's a log in for your user
-            if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){
-                Node *matching_node = find_and_remove_matching_record(&head, currRecord);
-                if(matching_node != NULL){
-                    print_session_info(currRecord, &matching_node->data);
-                    free(matching_node);
-                }else{
-                    print_session_info(currRecord, NULL);
-                }
-            }else{
-                //implied log out
-                add_or_update_dead_process(&head,currRecord);
-            }
-        }else if(currRecord->ut_type == DEAD_PROCESS){
-            add_or_update_dead_process(&head,currRecord);
-        }else if(currRecord->ut_type == BOOT_TIME){
-            //set all the log out records to the current time
-            reboot_logs(&head,currRecord);
-        }
+        currRecord = utmp_getrec(i); /* get record */
+        process_record(currRecord,username,&head); /* process each record */
     }
-
+    freeLinkedList(head); /* clean up de */
+    if(e_flag==1){
+        int a[] = {0,0};
+        utmp_stats(a);
+        fprintf(stdout, "%d records read, %d buffer misses\n",a[0],a[1]);
+    }
     utmp_close(utmpfd);
 }
 
