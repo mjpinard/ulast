@@ -26,7 +26,8 @@
 #endif
 #endif
 
-static time_t latest_reboot;
+static time_t latest_reboot = 0;
+static time_t latest_shutdown = 0;
 
 void show_info(struct utmp *);
 void read_wtmp_file(char *info, char *username, int e_flag);
@@ -117,13 +118,15 @@ void reboot_logs(struct Node** head, struct utmp *record){
 }
 
 //delete entire list of records
-  void freeLinkedList(Node* head) {
-    Node* current = head;
+  void delete_logs(Node** head) {
+    Node* current = *head;
+    Node* next;
     while (current != NULL) {
-        Node* next = current->next;
+        next = current->next;
         free(current);
         current = next;
     }
+    *head = NULL;
 }
 
 
@@ -178,6 +181,9 @@ void process_record(struct utmp* currRecord, char *username, Node** head, struct
         //set all the log out records to the current time
         reboot_logs(head,currRecord);
         latest_reboot = currRecord->ut_time;
+    }else if(currRecord->ut_type == RUN_LVL){
+        latest_shutdown = currRecord->ut_time;
+        delete_logs(head);
     }
 }
 
@@ -211,16 +217,20 @@ void read_wtmp_file(char *info, char *username, int e_flag){
         utmp_stats(a);
         fprintf(stdout, "%d records read, %d buffer misses\n",a[0],a[1]);
     }
-    freeLinkedList(head); /* clean up */
     utmp_close(utmpfd);
 }
 
 void print_session_info(struct utmp *login_record, struct utmp *logout_record) {
     time_t login_time = login_record->ut_time;
     time_t logout_time = logout_record ? logout_record->ut_time : time(NULL);
-    if(logout_record== NULL && latest_reboot != NULL && login_time<latest_reboot){
-        logout_time = latest_reboot;
+    if(logout_record== NULL){
+        if (latest_reboot!= 0){
+            logout_time = latest_reboot;
+        }if(latest_shutdown!=0){
+            logout_time = latest_shutdown;
+        }
     }
+    
     double duration = difftime(logout_time, login_time);
 
     int hours = (int)(duration / 3600);
@@ -230,14 +240,16 @@ void print_session_info(struct utmp *login_record, struct utmp *logout_record) {
     char login_time_str[32];
     char logout_time_str[32];
     
-    
     strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M", localtime(&login_time));
     if (logout_record) {
         strftime(logout_time_str, sizeof(logout_time_str), "%H:%M", localtime(&logout_time));
         printf("%-8.8s %-8.8s %-16.16s %s - %s (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, logout_time_str, hours, minutes);
-    } else if(latest_reboot != NULL && login_time<latest_reboot){
+    } else if(latest_reboot != 0){
         printf("%-8.8s %-8.8s %-16.16s %s - crash (%02d:%02d)\n",
+               login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, hours, minutes);
+    } else if(latest_shutdown != 0){
+        printf("%-8.8s %-8.8s %-16.16s %s - down (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, hours, minutes);
     }
     else {
