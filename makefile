@@ -2,14 +2,14 @@
 
 CC = cc -Wall -Wextra -g
 
-ulast: ulast.o dumputmp.o
-	$(CC)  ulast.o dumputmp.o -o ulast
+ulast: ulast.o bufferlib.o
+	$(CC)  ulast.o bufferlib.o -o ulast
 
-ulast.o: ulast.c dumputmp.h
+ulast.o: ulast.c bufferlib.h
 	$(CC) -c ulast.c
 
-dumputmp.o: dumputmp.c dumputmp.h
-	$(CC) -c dumputmp.c
+bufferlib.o: bufferlib.c bufferlib.h
+	$(CC) -c bufferlib.c
 
 clean:
-	rm -f *.o more03
+	rm -f *.o ulast
