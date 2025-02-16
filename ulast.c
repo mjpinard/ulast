@@ -26,6 +26,8 @@
 #endif
 #endif
 
+static time_t latest_reboot;
+
 void show_info(struct utmp *);
 void read_wtmp_file(char *info, char *username, int e_flag);
 void print_session_info(struct utmp *login_record, struct utmp *logout_record);
@@ -82,7 +84,6 @@ void add_or_update_dead_process(struct Node** head, struct utmp *record){
 }
 
 //function to return the matching node and remove it from the linked list, returns a null node* if the matching log in record does not exist
-
 Node* find_and_remove_matching_record(Node **head, struct utmp *record){
     Node *current = *head;
     Node *previous = NULL;
@@ -126,39 +127,39 @@ void reboot_logs(struct Node** head, struct utmp *record){
 }
 
 
-int main(int ac, char *av[])
-{
+int main(int ac, char *av[]){
     char *info = WTMP_FILE;
     char *username;
     int e_flag = 0;
-
-    //process args
-    for(int i = 1; i< ac; i++){
+    for(int i = 1; i< ac; i++){ /* process args */
 		if(strcmp(av[i], "-f")== 0 && i + 1 <ac){
 			info = av[i+1];
-			i++; //skip next arg bc it is the filepath
+			i++; /* skip next args since it's the filepath */
 		}else if(strcmp(av[i], "-e")== 0){
 			e_flag = 1;
-		}else if(av[i][0] == '-'){
+		}else if(av[i][0] == '-'){ /* bad input */
             fprintf(stderr, "Unknown option: %s\n", av[i]);
             exit(EXIT_FAILURE);
         }
         else{
-			username = av[i];
+			username = av[i]; /* set username */
 		}
 	}
     if(username ==NULL){
         fprintf(stderr,"You must enter a username to the program with [-f filepath] [e] username\n");
-        exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE); /* fail on no username */
     }
-
-    read_wtmp_file(info, username, e_flag);
-
+    read_wtmp_file(info, username, e_flag); /* process the file */
     return 0;
 }
 
-void process_record(struct utmp* currRecord, char *username, Node** head){
+void process_record(struct utmp* currRecord, char *username, Node** head, struct utmp** earliest_login){
     if(currRecord->ut_type == USER_PROCESS){ /* record is log in */
+        //update earliest log in
+        if(*earliest_login == NULL || currRecord->ut_time< (*earliest_login)->ut_time){
+            *earliest_login = currRecord;
+        }
+        
         if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){ /* check username */
             Node *matching_node = find_and_remove_matching_record(head, currRecord);
             if(matching_node != NULL){
@@ -176,6 +177,7 @@ void process_record(struct utmp* currRecord, char *username, Node** head){
     }else if(currRecord->ut_type == BOOT_TIME){
         //set all the log out records to the current time
         reboot_logs(head,currRecord);
+        latest_reboot = currRecord->ut_time;
     }
 }
 
@@ -183,6 +185,7 @@ void read_wtmp_file(char *info, char *username, int e_flag){
     int utmpfd;        /* read from this descriptor */
     struct utmp* currRecord;
     Node* head = NULL;
+    struct utmp* earliest_login = NULL;
 
     if ((utmpfd = utmp_open(info)) == -1) /* open file */
     {
@@ -194,21 +197,30 @@ void read_wtmp_file(char *info, char *username, int e_flag){
     for(int i = num_records -1; i>=0; i--) /* read last record to first */
     {
         currRecord = utmp_getrec(i); /* get record */
-        process_record(currRecord,username,&head); /* process each record */
+        process_record(currRecord,username,&head, &earliest_login); /* process each record */
     }
-    freeLinkedList(head); /* clean up de */
+    if(earliest_login!=NULL){
+        time_t login_time = earliest_login->ut_time;
+        char login_time_str[32];
+        strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M:%S %Y ", localtime(&login_time));
+        printf("\n");
+        printf("%s begins %s\n", info, login_time_str);
+    }
     if(e_flag==1){
         int a[] = {0,0};
         utmp_stats(a);
         fprintf(stdout, "%d records read, %d buffer misses\n",a[0],a[1]);
     }
+    freeLinkedList(head); /* clean up */
     utmp_close(utmpfd);
 }
-
 
 void print_session_info(struct utmp *login_record, struct utmp *logout_record) {
     time_t login_time = login_record->ut_time;
     time_t logout_time = logout_record ? logout_record->ut_time : time(NULL);
+    if(logout_record== NULL && latest_reboot != NULL && login_time<latest_reboot){
+        logout_time = latest_reboot;
+    }
     double duration = difftime(logout_time, login_time);
 
     int hours = (int)(duration / 3600);
@@ -217,21 +229,22 @@ void print_session_info(struct utmp *login_record, struct utmp *logout_record) {
 
     char login_time_str[32];
     char logout_time_str[32];
-    strftime(login_time_str, sizeof(login_time_str), "%a %b %d %H:%M", localtime(&login_time));
+    
+    
+    strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M", localtime(&login_time));
     if (logout_record) {
         strftime(logout_time_str, sizeof(logout_time_str), "%H:%M", localtime(&logout_time));
         printf("%-8.8s %-8.8s %-16.16s %s - %s (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, logout_time_str, hours, minutes);
-    } else {
+    } else if(latest_reboot != NULL && login_time<latest_reboot){
+        printf("%-8.8s %-8.8s %-16.16s %s - crash (%02d:%02d)\n",
+               login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, hours, minutes);
+    }
+    else {
         printf("%-8.8s %-8.8s %-16.16s %s - still logged in\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str);
     }
 }
-
-void print_earliest_log(struct utmp *login_record){
-    //print the earliest user record in the file
-}
-
 
 /*
  *	show info()
