@@ -1,0 +1,101 @@
+Design Document for ulast
+-----------------------------------------------------------
+Code by: Maddie Pinard
+Date: 2/16/2025
+-----------------------------------------------------------
+
+Purpose:
+
+The purpose of ulast is to display the 
+
+   [a] The part of the regular last command that lists all sessions for a specified username.
+   [b] The standard -f option to read data from a specified file
+   [c] A non-standard -e option to report buffering efficiency
+
+Ouline:
+
+Layering:
+
+	main ,for each file, calls:
+		do_more	-- which pages through a file calling
+			print_one_line
+			how_much_more -- to ask user how much more to show
+
+File Structure:
+
+	more03.c	-- the main three functions listed above
+	termfuncs.c	-- a toolkit that provides access to terminal info and input
+
+Design: Processing Multiple utmp Files
+
+I would use the following struct: 
+
+struct utmp_file {
+    int fd_utmp;
+    struct utmp utmpbuf[NRECS];
+    int num_recs;
+    int buffer_start;
+    int buffer_end;
+    ssize_t file_size_bytes;
+    int buffer_reloads;
+    int buffer_size;
+};
+
+The 5 new function declarations in the new header file: 
+
+1. struct utmp_file *utmp_open(const char *filename) --- opens the file and returns a pointer to the utmp_file struct
+
+2. struct utmp *utmp_getrec(struct utmp_file *uf, int index) --- pass in a pointer to the utmp_file struct and the index, and it returns the utmp object at the index of the file
+
+3. int utmp_close(struct utmp_file *uf) --- closes the file associated with the struct
+4. void utmp_stats(struct utmp_file *uf, int a[2]) -- reports efficiency of the file buffering (buffer hits vs buffer reloads) in the struct
+5. int utmp_len(struct utmp_file *uf) - returns the number of utmp objects in the file contained in the utmp_file struct
+
+Code for utmp_open and utmp_close
+
+struct utmp_file *utmp_open(const char *filename) {
+    
+    // Allocate memory for a new struct utmp_file
+    struct utmp_file *uf = malloc(sizeof(struct utmp_file));
+    if (uf == NULL) {
+        return NULL; // Memory allocation failed
+    }
+
+    // Open the specified file
+    uf->fd_utmp = open(filename, O_RDONLY);
+    if (uf->fd_utmp == -1) {
+        free(uf);
+        return NULL; // File open failed
+    }
+
+    // Initialize the buffer and other fields
+    uf->num_recs = 0;
+    uf->buffer_start = 0;
+    uf->buffer_end = 0;
+    uf->file_size_bytes = lseek(uf->fd_utmp, 0, SEEK_END);
+    uf->buffer_reloads = 0;
+    uf->buffer_size = NRECS;
+
+    // Return a pointer to the struct
+    return uf;
+}
+
+int utmp_close(struct utmp_file *uf) {
+    if (uf == NULL) {
+        return -1; // Invalid argument
+    }
+
+    // Close the file descriptor
+    if (close(uf->fd_utmp) == -1) {
+        return -1; // File close failed
+    }
+
+    // Free the memory allocated for the struct
+    free(uf);
+
+    // Return 0 on success
+    return 0;
+}
+
+
+
