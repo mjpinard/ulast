@@ -3,7 +3,7 @@
  *      functions are
  *              utmp_open(char *filename)    - open file
  *                      returns -1 on error
- *              struct utmp *utmp_getrec((int index))      - return pointer to struct at given index
+ *              struct utmp *utmp_getrec(int index)      - return pointer to struct at given index
  *                      returns NULL on eof or read error
  *              int utmp_close()               - close file
  *              utmp_stats(int a[2])           - reports buffering efficiency
@@ -18,7 +18,7 @@
 #include	    <unistd.h>
 #include	    "bufferlib.h"
 
-#define NRECS   2
+#define NRECS   4
 #define UTSIZE  (sizeof(struct utmp))
 
 static	struct utmp utmpbuf[NRECS];	/* storage		*/
@@ -28,7 +28,6 @@ static int buffer_end;                          /* keeps track of buffer end ind
 static  int     fd_utmp = -1;           /* read from    	*/
 static ssize_t file_size_bytes;
 static int buffer_reloads;
-static int records_read;
 static int buffer_size = NRECS; // default buffer size
 
 
@@ -42,7 +41,7 @@ int utmp_open( char *filename )
 {
         fd_utmp = open( filename, O_RDONLY );           /* open it      */
         buffer_start = buffer_end = -1;
-        num_recs = buffer_reloads = records_read = 0;        /* initialize all values  */
+        num_recs = buffer_reloads = 0;        /* initialize all values  */
         return fd_utmp;                                 /* report       */
 }
 
@@ -70,28 +69,27 @@ int utmp_len(){
     if(file_size_bytes==-1){
         perror("lseek");
     }
-    // move file pointer back
-    if (lseek(fd_utmp, 0, SEEK_SET) == -1)
-    {
-        perror("lseek");
-        return -1;
-    }
     num_recs = file_size_bytes/UTSIZE;
 
     return num_recs;
 }
+/*
+ * utmp_getrec -- gets and returns a pointer to a utmp record in the file at specified index.
+ *  args: integer index of the utmp struct the caller is requesting from the file
+ *  rets: null ptr on error, umtp* to to utmp record at requested index on success
+ */
 
 struct utmp* utmp_getrec(int index){
     size_t bytes_read;
-    //check if the index is in the buffer, if it is in the buffer, return the value
+    /* check if index is in buffer */
     if(index>= buffer_start && index <= buffer_end){
-        return &utmpbuf[index-buffer_start];
+        return &(utmpbuf[index-buffer_start]);
     }
-    //move to the start of the buffer
+
+    /* move buffer start (index/NRECS is the number of pages before our buffer) */
     if(lseek(fd_utmp, (index/ NRECS)* NRECS * UTSIZE, SEEK_SET) == -1){
         return NULL;
     }
-
     //read records into the buffer
     bytes_read = read(fd_utmp, utmpbuf, NRECS*UTSIZE);
     if(bytes_read == -1){
@@ -99,21 +97,23 @@ struct utmp* utmp_getrec(int index){
     }
     buffer_reloads++; /* udpate buffer load count */
     
-    buffer_start = (index/NRECS)* UTSIZE; /* update buffer start */
+    buffer_start = (index/NRECS) * NRECS; /* update buffer start */
     buffer_end = buffer_start + ((bytes_read/UTSIZE)-1); /* update buffer end */
 
-    //return pointer to record
     if(index >= buffer_start && index<= buffer_end){
-        return &utmpbuf[index - buffer_start];
+        return &utmpbuf[index - buffer_start]; /* return record */
     }else{
         return NULL;
     }
 }
 
-//need to check that this will persist to calling method
+/*
+ * utmp_stats -- updates the array with the number of recs read and the number of buffer misses
+ *  args: array of 2 ints
+ *  rets: new array
+ */
 void utmp_stats(int a[2]){
-    a[0] = records_read;
+    a[0] = num_recs;
     a[1] = buffer_reloads;
     return a;
-
 }

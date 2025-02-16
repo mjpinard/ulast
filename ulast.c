@@ -7,39 +7,35 @@
 #include <stdlib.h>
 #include <string.h>
 #include "bufferlib.h"
+
 /*
- *	who version 2		- read /var/run/utmp and list info therein
- * 				- surpresses empty records
- *				- formats time nicely
+ *	ulast		- read /var/run/utmp or given file and returns log in records for a user
+ *              - contains linked list struct in order to process the utmp records
+ *              - main function is 
  */
 
-/* UTMP_FILE is a symbol defined in utmp.h */
-/* note: compile with -DTEXTDATE for dates format: Feb  5, 1978 	*/
-/*       otherwise, program defaults to NUMDATE (1978-02-05)		*/
-
-#define TEXTDATE
-#ifndef DATE_FMT
-#ifdef TEXTDATE
-#define DATE_FMT "%b %e %H:%M" /* text format	*/
-#else
-#define DATE_FMT "%Y-%m-%d %H:%M" /* the default	*/
-#endif
-#endif
-
+ //global variables to keep track of system reboots and shutdowns
 static time_t latest_reboot = 0;
 static time_t latest_shutdown = 0;
 
-void show_info(struct utmp *);
 void read_wtmp_file(char *info, char *username, int e_flag);
 void print_session_info(struct utmp *login_record, struct utmp *logout_record);
 
-// Create a node
+// Data structure to define a single log out record
 typedef struct Node {
     struct utmp data;
     struct Node* next;
 } Node;
 
-  // Function to create a new Node
+
+//Helper functions for log out data structure
+
+/*
+ * createNode -- creates a new Node instance which holds a utmp struct and next pointer
+ *  args: pointer to utmp struct
+ *  rets: pointer to new node
+ */
+
 Node* createNode(struct utmp *data) {
     Node* newNode = (Node*)malloc(sizeof(Node));
     if (newNode == NULL) {
@@ -50,6 +46,11 @@ Node* createNode(struct utmp *data) {
     newNode->next = NULL;
     return newNode;
 }
+
+/*
+ * insertAtEnd -- adds a new log out record to the end of a linked list
+ *  args: pointer to utmp struct, head pointer
+ */
 
 void insertAtEnd(Node** head, struct utmp *data) {
     Node* newNode = createNode(data);
@@ -64,7 +65,11 @@ void insertAtEnd(Node** head, struct utmp *data) {
     temp->next = newNode;
 }
 
-// add or update log out
+/*
+ *  add_or_update_dead_process -- checks whether the record is already in the linked list
+ *  and ether updates with the log out and pid or adds the new record to the list
+ *  args: pointer to utmp struct, head pointer
+ */
 
 void add_or_update_dead_process(struct Node** head, struct utmp *record){
     if(record->ut_type != DEAD_PROCESS){
@@ -84,7 +89,12 @@ void add_or_update_dead_process(struct Node** head, struct utmp *record){
     insertAtEnd(head, record);
 }
 
-//function to return the matching node and remove it from the linked list, returns a null node* if the matching log in record does not exist
+/*
+ *  find_and_remove_matching_record -- checks whether the log out record is in the linked list
+ *  and returns that record if it exists, otherwise returns the null pointer
+ *  args: pointer to utmp struct, head pointer
+ *  rets: corresponding log out record, null ptr if it doesn't exist
+ */
 Node* find_and_remove_matching_record(Node **head, struct utmp *record){
     Node *current = *head;
     Node *previous = NULL;
@@ -107,7 +117,11 @@ Node* find_and_remove_matching_record(Node **head, struct utmp *record){
     return NULL;
 }
 
-//update all log out times in the logout list on a reboot
+
+/*
+ *  reboot_logs -- updates all the log records to the new reboot time
+ *  args: utmp record that is the reboot record, head pointer
+ */
 void reboot_logs(struct Node** head, struct utmp *record){
 
     Node* current = *head;
@@ -117,7 +131,10 @@ void reboot_logs(struct Node** head, struct utmp *record){
     }
 }
 
-//delete entire list of records
+/*
+ *  delete_logs -- deletes the entire log list
+ *  args: head pointer to list
+ */
   void delete_logs(Node** head) {
     Node* current = *head;
     Node* next;
@@ -128,7 +145,10 @@ void reboot_logs(struct Node** head, struct utmp *record){
     }
     *head = NULL;
 }
-
+/*
+ *	main method, program entry
+ *  process args and calls main function read_wtmp_file
+ */
 
 int main(int ac, char *av[]){
     char *info = WTMP_FILE;
@@ -156,36 +176,47 @@ int main(int ac, char *av[]){
     return 0;
 }
 
+/*
+ *  process_record -- reads the utmp record, and calls the linked list helper methods to process the utmp record 
+ *  based on what kind of record it is. 
+ *  args: current utmp record, username, head, earliest login
+ */
+
 void process_record(struct utmp* currRecord, char *username, Node** head, struct utmp** earliest_login){
     if(currRecord->ut_type == USER_PROCESS){ /* record is log in */
-        //update earliest log in
+        //* keep track of earliest log in */
         if(*earliest_login == NULL || currRecord->ut_time< (*earliest_login)->ut_time){
             *earliest_login = currRecord;
         }
-        
         if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){ /* check username */
             Node *matching_node = find_and_remove_matching_record(head, currRecord);
             if(matching_node != NULL){
-                print_session_info(currRecord, &matching_node->data);
-                free(matching_node);
+                print_session_info(currRecord, &matching_node->data);  /* print user log in records */
+                free(matching_node);  /* delete node */
             }else{
-                print_session_info(currRecord, NULL);
+                print_session_info(currRecord, NULL); /* user still logged in but still need to print record */
             }
         }else{
             /* record could be implied log in */
             add_or_update_dead_process(head,currRecord); 
         }
-    }else if(currRecord->ut_type == DEAD_PROCESS){
-        add_or_update_dead_process(head,currRecord);
+    }else if(currRecord->ut_type == DEAD_PROCESS){ 
+        add_or_update_dead_process(head,currRecord); /* record log out */
     }else if(currRecord->ut_type == BOOT_TIME){
-        //set all the log out records to the current time
-        reboot_logs(head,currRecord);
+        reboot_logs(head,currRecord); /* update log out records */
         latest_reboot = currRecord->ut_time;
     }else if(currRecord->ut_type == RUN_LVL){
-        latest_shutdown = currRecord->ut_time;
-        delete_logs(head);
+        latest_shutdown = currRecord->ut_time; 
+        delete_logs(head); /* delete history of log outs since there was a shutdown */
     }
 }
+
+/*
+ *  read_wtmp_file -- calls bufferlib helper functions to open the file, and read the file starting from the last utmp record to the first, 
+ *  and processes these records. After reading the file, it prints the earliest log in record and the file name, and prints the
+ *  buffer efficiency if the user passed in the -e flag
+ *  args: file to open, the username, and whether the user selected the -e flag
+ */
 
 void read_wtmp_file(char *info, char *username, int e_flag){
     int utmpfd;        /* read from this descriptor */
@@ -198,103 +229,65 @@ void read_wtmp_file(char *info, char *username, int e_flag){
         perror("open");
         exit(EXIT_FAILURE);
     }
-    int num_records = utmp_len();
+    int num_records = utmp_len(); /* get num utmp records in the file */
 
     for(int i = num_records -1; i>=0; i--) /* read last record to first */
     {
         currRecord = utmp_getrec(i); /* get record */
         process_record(currRecord,username,&head, &earliest_login); /* process each record */
     }
-    if(earliest_login!=NULL){
+    if(earliest_login!=NULL){ 
         time_t login_time = earliest_login->ut_time;
         char login_time_str[32];
         strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M:%S %Y ", localtime(&login_time));
         printf("\n");
-        printf("%s begins %s\n", info, login_time_str);
+        printf("%s begins %s\n", info, login_time_str); /* print earliest log in */
     }
-    if(e_flag==1){
+    if(e_flag==1){ /* if user wants to get buffer efficiency */
         int a[] = {0,0};
         utmp_stats(a);
         fprintf(stdout, "%d records read, %d buffer misses\n",a[0],a[1]);
     }
-    utmp_close(utmpfd);
+    utmp_close(utmpfd); /* close the file */
 }
+
+/*
+ *  print_session_info -- calculates the session time and displays the session to the user
+ *  args: the login record and the logout record. 
+ */
 
 void print_session_info(struct utmp *login_record, struct utmp *logout_record) {
     time_t login_time = login_record->ut_time;
     time_t logout_time = logout_record ? logout_record->ut_time : time(NULL);
-    if(logout_record== NULL){
+    if(logout_record== NULL){ /* edge cases */
         if (latest_reboot!= 0){
             logout_time = latest_reboot;
         }if(latest_shutdown!=0){
             logout_time = latest_shutdown;
         }
     }
-    
-    double duration = difftime(logout_time, login_time);
+    double duration = difftime(logout_time, login_time); /* calculates session length */
 
     int hours = (int)(duration / 3600);
     int minutes = (int)((duration - (hours * 3600)) / 60);
-    int seconds = (int)(duration - (hours * 3600) - (minutes * 60));
 
     char login_time_str[32];
     char logout_time_str[32];
     
-    strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M", localtime(&login_time));
+    strftime(login_time_str, sizeof(login_time_str), "%a %b  %-d %H:%M", localtime(&login_time)); //formats log in time
     if (logout_record) {
         strftime(logout_time_str, sizeof(logout_time_str), "%H:%M", localtime(&logout_time));
-        printf("%-8.8s %-8.8s %-16.16s %s - %s (%02d:%02d)\n",
+        printf("%-8.8s %-8.8s     %-16.16s %s - %s  (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, logout_time_str, hours, minutes);
     } else if(latest_reboot != 0){
-        printf("%-8.8s %-8.8s %-16.16s %s - crash (%02d:%02d)\n",
+        printf("%-8.8s %-8.8s     %-16.16s %s - crash (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, hours, minutes);
     } else if(latest_shutdown != 0){
-        printf("%-8.8s %-8.8s %-16.16s %s - down (%02d:%02d)\n",
+        printf("%-8.8s %-8.8s     %-16.16s %s - down (%02d:%02d)\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str, hours, minutes);
     }
     else {
-        printf("%-8.8s %-8.8s %-16.16s %s - still logged in\n",
+        printf("%-8.8s %-8.8s     %-16.16s %s - still logged in\n",
                login_record->ut_user, login_record->ut_line, login_record->ut_host, login_time_str);
     }
-}
-
-/*
- *	show info()
- *			displays the contents of the utmp struct
- *			in human readable form
- *			* displays nothing if record has no user name
- */
-void show_info(struct utmp *utbufp)
-{
-    void showtime(time_t, char *);
-
-    // if (utbufp->ut_type != USER_PROCESS)
-    //     return;
-
-    printf("%-8.32s", utbufp->ut_name);       /* the logname	*/
-                                              /* better: "%-8.*s",UT_NAMESIZE,utbufp->ut_name) */
-    printf(" ");                              /* a space	*/
-    printf("%-12.12s", utbufp->ut_line);      /* the tty	*/
-    printf(" ");                              /* a space	*/
-    printf("%6d ", utbufp->ut_pid ); 
-    showtime(utbufp->ut_time, DATE_FMT);      /* display time	*/
-    if (utbufp->ut_host[0] != '\0')           /* if not ""	*/
-        printf(" (%.256s)", utbufp->ut_host); /*    show host	*/
-    printf("\n");                             /* newline	*/
-}
-
-#define MAXDATELEN 100
-
-void showtime(time_t timeval, char *fmt)
-/*
- * displays time in a format fit for human consumption.
- * Uses localtime to convert the timeval into a struct of elements
- * (see localtime(3)) and uses strftime to format the data
- */
-{
-    char result[MAXDATELEN];
-
-    struct tm *tp = localtime(&timeval);   /* convert time	*/
-    strftime(result, MAXDATELEN, fmt, tp); /* format it	*/
-    fputs(result, stdout);
 }

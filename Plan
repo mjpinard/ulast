@@ -16,17 +16,21 @@ Ouline:
 
 Layering:
 
-	main ,for each file, calls:
-		do_more	-- which pages through a file calling
-			print_one_line
-			how_much_more -- to ask user how much more to show
+	main - gets args and passes to read_wtmp_file
+        read_wtmp_file -- for loop to process each record, prints earliest record and buffer efficiency
+            process_record
+                if its our user, take log out off the linked list, calls print_session_info
+                if it's not the user, add implied implied log to list
+                if it's a boot time, reboot the logs
+                if it's a shut down, delete the linked list
+
 
 File Structure:
 
-	more03.c	-- the main three functions listed above
-	termfuncs.c	-- a toolkit that provides access to terminal info and input
+	ulast.c	-- main functions, linked list struct and helper functions
+	bufferlib.c	-- functions read utmp records from a file implenting buffering, and reading in a utmp file at any index
 
-Design: Processing Multiple utmp Files
+Design For Processing Multiple utmp Files
 
 I would use the following struct: 
 
