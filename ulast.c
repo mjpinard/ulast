@@ -159,7 +159,6 @@ int main(int ac, char *av[])
 
 void read_wtmp_file(char *info, char *username){
     int utmpfd;        /* read from this descriptor */
-    ssize_t bytes_read;
     struct utmp* currRecord;
     Node* head = NULL;
 
@@ -168,48 +167,37 @@ void read_wtmp_file(char *info, char *username){
         perror("open");
         exit(EXIT_FAILURE);
     }
-    int numRecords = utmp_len();
-    int rec_index = numRecords -1; // set the first index to the last record
 
-    while(rec_index>=0){
-        currRecord = utmp_getrec(rec_index);
-        insertAtEnd(&head, currRecord);
-    }
+    int num_records = utmp_len();
 
-    // // Read the file backwards one struct at a time - starting at the last struct and go to first struct
-    // while (rec_index>=0)
-    // {
-    //     // at this point we want to call utmp_getrec() and give it a record number
-    //     currRecord = utmp_getrec(rec_index);
+    // Read the file backwards one struct at a time - starting at the last struct and go to first struct
+    for(int i = num_records -1; i>=0; i--)
+    {
+        // at this point we want to call utmp_getrec() and give it a record number
+        currRecord = utmp_getrec(i);
 
-    //     //call method called process record (which will do the below processesing) -- pass in a pointer to the record
-    //     //instead of calling utbuf.ut_type call utbuf->ut_type
-    //     if(currRecord->ut_type == USER_PROCESS){
-    //         //if it's a log in for your user
-    //         if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){
-    //             Node *matching_node = find_and_remove_matching_record(&head, currRecord);
-    //             if(matching_node != NULL){
-    //                 print_session_info(currRecord, &matching_node->data);
-    //                 free(matching_node);
-    //             }else{
-    //                 print_session_info(currRecord, NULL);
-    //             }
-    //         }else{
-    //             //implied log out
-    //             add_or_update_dead_process(&head,currRecord);
-    //         }
-    //     }else if(currRecord->ut_type == DEAD_PROCESS){
-    //         add_or_update_dead_process(&head,currRecord);
-    //     }else if(currRecord->ut_type == BOOT_TIME){
-    //         //set all the log out records to the current time
-    //         reboot_logs(&head,currRecord);
-    //     }
-    // }
-
-    Node* current = head;
-    while(current->next!=NULL){
-            show_info(&(current->data));
-            current = current->next;
+        //call method called process record (which will do the below processesing) -- pass in a pointer to the record
+        //instead of calling utbuf.ut_type call utbuf->ut_type
+        if(currRecord->ut_type == USER_PROCESS){
+            //if it's a log in for your user
+            if(strncmp(currRecord->ut_name, username,UT_NAMESIZE)==0){
+                Node *matching_node = find_and_remove_matching_record(&head, currRecord);
+                if(matching_node != NULL){
+                    print_session_info(currRecord, &matching_node->data);
+                    free(matching_node);
+                }else{
+                    print_session_info(currRecord, NULL);
+                }
+            }else{
+                //implied log out
+                add_or_update_dead_process(&head,currRecord);
+            }
+        }else if(currRecord->ut_type == DEAD_PROCESS){
+            add_or_update_dead_process(&head,currRecord);
+        }else if(currRecord->ut_type == BOOT_TIME){
+            //set all the log out records to the current time
+            reboot_logs(&head,currRecord);
+        }
     }
 
     utmp_close(utmpfd);
